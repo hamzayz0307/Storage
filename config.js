@@ -5,6 +5,6 @@
 // Both are safe to be public — the database rules (RLS) protect the data.
 // NEVER put the secret / service_role key or the Gemini key here.
 window.APP_CONFIG = {
-  SUPABASE_URL: "https://YOUR-PROJECT-ID.supabase.co",
-  SUPABASE_ANON_KEY: "YOUR-PUBLISHABLE-KEY",
+  SUPABASE_URL: "https://molunmxhnyqkqvmyxyxw.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_ytSmK-R9UodhuPezrtm8jw_aPeGKxNC",
 };
