@@ -1,7 +1,9 @@
 // Box Finder / Kutu Bul — AI edge function
 //
 // Deploy: Supabase → Edge Functions → Deploy a new function → "Via editor",
-// name it  box-ai , paste this whole file, Deploy.
+// name it  box-ai , paste this whole file, Deploy. Then open the function's
+// Details and turn OFF "Verify JWT" — this file checks the login itself
+// (auth.getUser below), and the built-in check rejects the new-style keys.
 //
 // Secrets (Edge Functions → Secrets):
 //   GEMINI_API_KEY   required  your Google AI Studio key
@@ -28,6 +30,19 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+// The server key: new projects provide SUPABASE_SECRET_KEYS (JSON), older ones
+// SUPABASE_SERVICE_ROLE_KEY. Both are set automatically by Supabase.
+function getServerKey(): string | undefined {
+  try {
+    const keys = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}");
+    const key = keys.default || Object.values(keys)[0];
+    if (typeof key === "string" && key) return key;
+  } catch {
+    // fall through to the legacy key
+  }
+  return Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || undefined;
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -146,7 +161,7 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const serviceKey = getServerKey();
   const geminiKey = Deno.env.get("GEMINI_API_KEY");
   const model = Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite";
   const limit = Math.max(1, parseInt(Deno.env.get("AI_DAILY_LIMIT") || "20", 10) || 20);

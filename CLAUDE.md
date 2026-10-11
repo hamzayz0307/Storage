@@ -5,7 +5,7 @@ Storage-box inventory web app: photograph a box's contents, AI lists the items, 
 ## Architecture
 - **Frontend:** one `index.html` (HTML + CSS + JS, no build step), hosted on **Vercel**, auto-deployed from this repo. Supabase URL + publishable key live in `config.js` (public by design; RLS protects data).
 - **Backend:** its **own Supabase project** (separate from Fridge-to-Table): Postgres + Auth + Storage + Edge Functions.
-- **AI:** Google **Gemini** via the Edge Function `box-ai` (`supabase/functions/box-ai/index.ts`). The prompt is built server-side; the browser only sends photos + language + an optional hint. Secrets: `GEMINI_API_KEY` (required), `GEMINI_MODEL` (default `gemini-3.5-flash-lite`), `AI_DAILY_LIMIT` (default 20). Uses `responseSchema` JSON output, `thinkingLevel: low` (retries without it on models that reject it), retries on 429/5xx, refunds the credit when the AI call fails.
+- **AI:** Google **Gemini** via the Edge Function `box-ai` (`supabase/functions/box-ai/index.ts`). The prompt is built server-side; the browser only sends photos + language + an optional hint. Secrets: `GEMINI_API_KEY` (required), `GEMINI_MODEL` (default `gemini-3.5-flash-lite`), `AI_DAILY_LIMIT` (default 20). Server key from `SUPABASE_SECRET_KEYS` (new projects) or `SUPABASE_SERVICE_ROLE_KEY` (legacy); "Verify JWT" is off because the function calls `auth.getUser(token)` itself. Uses `responseSchema` JSON output, `thinkingLevel: low` (retries without it on models that reject it), retries on 429/5xx, refunds the credit when the AI call fails.
 - **Libraries:** supabase-js from unpkg; `vendor/qrcode.js` (QR generation) and `vendor/jsQR.js` (scanner fallback when `BarcodeDetector` is missing, lazy-loaded) are self-hosted. Fonts are self-hosted in `fonts/` (no Google Fonts requests).
 
 ## Security rules (do not break)
@@ -14,6 +14,7 @@ Storage-box inventory web app: photograph a box's contents, AI lists the items, 
 - `items.space_id` and `box_photos.space_id` are always copied from the box by a trigger; the app never sends them.
 - `consume_ai_credit` / `refund_ai_credit` are executable by `service_role` only.
 - Work on a separate branch and let the owner review the Vercel preview; never push to `main` directly.
+- New Supabase projects don't auto-grant table access: every new table needs explicit `grant`s to `authenticated` and `service_role` in `schema.sql`.
 - Database changes: write SQL and give it to the owner to run in the Supabase SQL Editor (no direct DB access). Keep `supabase/schema.sql` re-runnable (`if not exists` / `or replace` / `drop policy if exists`).
 
 ## Data model (`supabase/schema.sql`)

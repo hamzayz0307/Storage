@@ -532,6 +532,12 @@ grant select, insert, update, delete on public.profiles, public.locations, publi
 grant select, update, delete on public.spaces to authenticated;
 grant select on public.space_members, public.ai_usage to authenticated;
 
+-- New Supabase projects (from mid-2026) no longer give the server role access
+-- to new tables automatically. The AI function needs it for the usage counter.
+grant select, insert, update, delete on public.spaces, public.space_members, public.profiles,
+  public.locations, public.boxes, public.box_photos, public.items, public.ai_usage to service_role;
+grant usage on schema public to service_role;
+
 revoke execute on function public.consume_ai_credit(uuid, integer) from public, anon, authenticated;
 revoke execute on function public.refund_ai_credit(uuid) from public, anon, authenticated;
 grant execute on function public.consume_ai_credit(uuid, integer) to service_role;

@@ -121,6 +121,12 @@ const usageSeen = (await as(A, () => db.query(`select count from public.ai_usage
 ok(usageSeen.length === 1 && usageSeen[0].count === 3, 'user can read own usage');
 ok((await as(B, () => db.query(`select * from public.ai_usage`))).rows.length === 0, 'user B cannot read A\'s usage');
 
+// server role can use the usage table (needed on new projects without default grants)
+await db.exec(`set role service_role`);
+const svc = (await db.query(`select count(*)::int c from public.ai_usage`)).rows[0].c;
+await db.exec(`reset role`);
+ok(svc >= 1, 'server role can read ai_usage');
+
 // storage policies
 await as(A, () => db.query(`insert into storage.objects (bucket_id, name) values ('box-photos', $1)`, [`${sA}/${box1.id}/a.jpg`]));
 ok(true, 'A can upload into own space folder');

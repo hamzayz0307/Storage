@@ -44,7 +44,8 @@ It creates the tables, security rules, search, the private photo bucket `box-pho
 - **Authentication → URL Configuration:** set **Site URL** to your Vercel address (step 6) and add it to **Redirect URLs** too, plus your preview URL. Password-reset emails use these.
 
 ### 4. Deploy the AI function
-**Edge Functions → Deploy a new function → Via editor** → name it exactly **`box-ai`** → replace the example code with all of `supabase/functions/box-ai/index.ts` → **Deploy**. Leave "Verify JWT" on.
+**Edge Functions → Deploy a new function → Via editor** → name it exactly **`box-ai`** → replace the example code with all of `supabase/functions/box-ai/index.ts` → **Deploy**.
+Then open the function → **Details** → turn **Verify JWT** **off** → Save. The function checks the login itself, and the built-in check rejects the new-style keys that new projects use.
 
 Then **Edge Functions → Secrets → Add new secret:**
 

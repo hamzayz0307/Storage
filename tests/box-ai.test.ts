@@ -103,6 +103,17 @@ geminiMode = "busy"; geminiCalls = [];
 r = await call({ action: "identify", images: [img] });
 ok(r.status === 502 && geminiCalls.length === 3 && used === 0, "retries when Gemini is busy, then refunds");
 
+// New-style projects: only SUPABASE_SECRET_KEYS is set.
+Deno.env.delete("SUPABASE_SERVICE_ROLE_KEY");
+Deno.env.set("SUPABASE_SECRET_KEYS", JSON.stringify({ default: "sb_secret_x" }));
+geminiMode = "ok"; used = 0;
+r = await call({ action: "usage" });
+ok(r.status === 200 && r.body.remaining === 2, "works with the new SUPABASE_SECRET_KEYS");
+Deno.env.delete("SUPABASE_SECRET_KEYS");
+r = await call({ action: "usage" });
+ok(r.status === 500 && r.body.error === "server_not_configured", "clear error when no server key exists");
+Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "service");
+
 const opt = await handler(new Request("https://fn/box-ai", { method: "OPTIONS" }));
 ok(opt.status === 200 && opt.headers.get("access-control-allow-headers")!.includes("apikey"), "answers CORS preflight");
 
