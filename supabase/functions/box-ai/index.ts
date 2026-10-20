@@ -74,6 +74,34 @@ Rules:
 ${lang}${hintLine}`;
 }
 
+// Reading the rating plate / sticker of an appliance.
+function buildLabelPrompt(language: string) {
+  const lang = language === "tr"
+    ? 'Write "name" in natural Turkish (e.g. "çamaşır makinesi"). Copy brand, model and serial exactly as printed.'
+    : 'Write "name" in English (e.g. "washing machine"). Copy brand, model and serial exactly as printed.';
+  return `The photo shows the rating plate, sticker or box of a household appliance or device.
+Read it and fill in:
+- "name": what kind of appliance it is, 1–3 words
+- "brand": the manufacturer
+- "model": the model number or name
+- "serial": the serial number (often after S/N, SN, Seri No)
+- "category": exactly one of: ${CATEGORIES.join(", ")}
+Use an empty string for anything you can't read clearly. Never guess numbers.
+${lang}`;
+}
+
+const labelSchema = {
+  type: "OBJECT",
+  properties: {
+    name: { type: "STRING" },
+    brand: { type: "STRING" },
+    model: { type: "STRING" },
+    serial: { type: "STRING" },
+    category: { type: "STRING", enum: CATEGORIES },
+  },
+  required: ["name", "brand", "model", "serial", "category"],
+};
+
 const responseSchema = {
   type: "OBJECT",
   properties: {
@@ -93,13 +121,13 @@ const responseSchema = {
   required: ["items"],
 };
 
-async function callGemini(apiKey: string, model: string, parts: unknown[]) {
+async function callGemini(apiKey: string, model: string, parts: unknown[], schema: unknown = responseSchema) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const makeBody = (withThinking: boolean) => JSON.stringify({
     contents: [{ role: "user", parts }],
     generationConfig: {
       responseMimeType: "application/json",
-      responseSchema,
+      responseSchema: schema,
       maxOutputTokens: 4096,
       ...(withThinking ? { thinkingConfig: { thinkingLevel: "low" } } : {}),
     },
@@ -132,6 +160,18 @@ async function callGemini(apiKey: string, model: string, parts: unknown[]) {
     throw new Error(`Gemini error ${res.status}`);
   }
   throw new Error("Gemini is busy");
+}
+
+function cleanLabel(raw: string) {
+  const parsed = JSON.parse(raw.replace(/```json/gi, "").replace(/```/g, "").trim());
+  const field = (v: unknown, max: number) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+  return {
+    name: field(parsed?.name, 80),
+    brand: field(parsed?.brand, 60),
+    model: field(parsed?.model, 60),
+    serial: field(parsed?.serial, 60),
+    category: CATEGORIES.includes(parsed?.category) ? parsed.category : "electronics",
+  };
 }
 
 function cleanItems(raw: string) {
@@ -192,11 +232,13 @@ Deno.serve(async (req) => {
     return json({ limit, remaining: Math.max(0, limit - used) });
   }
 
-  if (body.action !== "identify") return json({ error: "unknown_action" }, 400);
+  const action = body.action;
+  if (action !== "identify" && action !== "read_label") return json({ error: "unknown_action" }, 400);
   if (!geminiKey) return json({ error: "server_not_configured" }, 500);
 
   const images = Array.isArray(body.images) ? body.images : [];
-  if (images.length < 1 || images.length > MAX_IMAGES) return json({ error: "bad_images" }, 400);
+  const maxImages = action === "read_label" ? 1 : MAX_IMAGES;
+  if (images.length < 1 || images.length > maxImages) return json({ error: "bad_images" }, 400);
   for (const img of images as Array<{ mime?: string; data?: string }>) {
     if (!img || !ALLOWED_MIME.includes(String(img.mime)) || typeof img.data !== "string" ||
         img.data.length === 0 || img.data.length > MAX_IMAGE_CHARS) {
@@ -214,15 +256,16 @@ Deno.serve(async (req) => {
   if (left === -1) return json({ error: "daily_limit", limit, remaining: 0 }, 429);
 
   try {
-    const parts = [
-      ...(images as Array<{ mime: string; data: string }>).map((img) => ({ inline_data: { mime_type: img.mime, data: img.data } })),
-      { text: buildPrompt(language, images.length, hint) },
-    ];
-    const raw = await callGemini(geminiKey, model, parts);
+    const imageParts = (images as Array<{ mime: string; data: string }>).map((img) => ({ inline_data: { mime_type: img.mime, data: img.data } }));
+    if (action === "read_label") {
+      const raw = await callGemini(geminiKey, model, [...imageParts, { text: buildLabelPrompt(language) }], labelSchema);
+      return json({ label: cleanLabel(raw), limit, remaining: left });
+    }
+    const raw = await callGemini(geminiKey, model, [...imageParts, { text: buildPrompt(language, images.length, hint) }]);
     const items = cleanItems(raw);
     return json({ items, limit, remaining: left });
   } catch (err) {
-    console.error("identify failed", err);
+    console.error(action + " failed", err);
     await admin.rpc("refund_ai_credit", { p_user: user.id });
     return json({ error: "ai_failed", limit, remaining: (left as number) + 1 }, 502);
   }

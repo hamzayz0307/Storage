@@ -35,6 +35,9 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     geminiCalls.push({ url, body });
     if (geminiMode === "thinking400" && body.generationConfig.thinkingConfig) return j({ error: { message: "thinking_level is not supported" } }, 400);
     if (geminiMode === "busy") return j({ error: { message: "overloaded" } }, 503);
+    if (body.generationConfig.responseSchema.properties.serial) {
+      return j({ candidates: [{ content: { parts: [{ text: JSON.stringify({ name: " washing  machine ", brand: "Arçelik", model: "9100 M", serial: "SN 123456789012345678901234567890123456789012345678901234567890XYZ", category: "nope" }) }] } }] });
+    }
     const text = geminiMode === "garbage" ? "not json" : JSON.stringify({ items: [
       { name: "Cordless drill", category: "tools", quantity: 1 },
       { name: "cordless drill", category: "tools", quantity: 1 },
@@ -113,6 +116,16 @@ Deno.env.delete("SUPABASE_SECRET_KEYS");
 r = await call({ action: "usage" });
 ok(r.status === 500 && r.body.error === "server_not_configured", "clear error when no server key exists");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "service");
+
+// Reading an appliance label
+used = 0; geminiMode = "ok";
+r = await call({ action: "read_label", images: [img, img] });
+ok(r.status === 400, "label reading takes exactly one photo");
+r = await call({ action: "read_label", images: [img], language: "tr" });
+ok(r.status === 200 && r.body.label.name === "washing machine" && r.body.label.brand === "Arçelik" && r.body.label.serial.length === 60 && r.body.label.category === "electronics", `reads and cleans an appliance label (${JSON.stringify(r.body.label)})`);
+ok(r.body.remaining === 1, "label reading uses one credit");
+const labelPrompt = (geminiCalls.at(-1)!.body as any).contents[0].parts[1].text as string;
+ok(labelPrompt.includes("Turkish") && labelPrompt.includes("serial"), "label prompt asks for the right fields in Turkish");
 
 const opt = await handler(new Request("https://fn/box-ai", { method: "OPTIONS" }));
 ok(opt.status === 200 && opt.headers.get("access-control-allow-headers")!.includes("apikey"), "answers CORS preflight");
