@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shared box</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<style>
+:root { --bg: #E6E9EC; --surface: #fff; --line: #D5DADF; --ink: #1D2430; --ink-2: #4A5563; --ink-3: #737E8C; --kraft: #C99D66; --kraft-ink: #2A1E10; --bad: #B8402B;
+  --font-ui: 'Instrument Sans', system-ui, sans-serif; --font-display: 'Big Shoulders', 'Arial Narrow', sans-serif; --font-code: 'Big Shoulders Stencil', 'Big Shoulders', 'Arial Narrow', sans-serif; color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171B; --surface: #1F242A; --line: #2E353D; --ink: #E7EAEE; --ink-2: #B3BBC5; --ink-3: #8792A0; --kraft: #BE9260; --kraft-ink: #22170A; --bad: #E58066; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16px/1.5 var(--font-ui); }
+main { max-width: 620px; margin: 0 auto; padding: calc(20px + env(safe-area-inset-top)) 16px 40px; }
+.brand { margin: 0 0 10px; color: var(--ink-2); font-weight: 700; }
+.label { position: relative; padding: 28px 20px 20px; border-radius: 10px; background-color: var(--kraft); color: var(--kraft-ink);
+  background-image: repeating-linear-gradient(100deg, rgba(70, 40, 10, 0.05) 0 1px, transparent 1px 6px), repeating-linear-gradient(12deg, rgba(255, 255, 255, 0.07) 0 2px, transparent 2px 9px); }
+.code { font: 800 clamp(60px, 19vw, 96px)/0.86 var(--font-code); }
+h1 { margin: 12px 0 4px; font: 700 28px/1.1 var(--font-display); overflow-wrap: anywhere; }
+.place { margin: 0; font-weight: 500; }
+.fragile { display: inline-block; margin-top: 10px; padding: 2px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.5); color: #8E2A17; font-size: 13px; font-weight: 700; }
+h2 { margin: 26px 0 8px; font: 700 23px/1.15 var(--font-display); }
+.cat { margin: 14px 2px 6px; color: var(--ink-3); font-size: 13px; font-weight: 600; }
+ul { margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); list-style: none; }
+li { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; }
+li + li { border-top: 1px solid var(--line); }
+.qty { color: var(--ink-2); font-weight: 600; }
+.msg { margin-top: 40px; padding: 26px 20px; border: 1.5px dashed var(--ink-3); border-radius: 16px; color: var(--ink-2); }
+.foot { margin-top: 30px; color: var(--ink-3); font-size: 13px; text-align: center; }
+.foot a { color: inherit; }
+</style>
+</head>
+<body>
+<main id="out"><p class="msg" id="loading">…</p></main>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="/config.js"></script>
+<script>
+'use strict';
+(function () {
+  var params = new URLSearchParams(location.search);
+  var lang = params.get('lang') || (/^tr\b/i.test(navigator.language || '') ? 'tr' : 'en');
+  try { var saved = localStorage.getItem('bf_lang'); if (!params.get('lang') && (saved === 'en' || saved === 'tr')) lang = saved; } catch (e) {}
+  var T = {
+    en: { title: 'Shared box', items: 'What’s inside', none: 'Nothing listed in this box.', fragile: 'Fragile', noPlace: 'No place', gone: 'This link was turned off or doesn’t exist.', fail: 'Couldn’t load the box. Check your connection and try again.', foot: 'Shared with Box Finder', open: 'Open the app',
+      cats: { tools: 'Tools', electronics: 'Electronics & cables', kitchen: 'Kitchen', clothing: 'Clothing & shoes', bedding: 'Bedding & towels', books: 'Books & paper', documents: 'Documents', toys: 'Toys & games', sports: 'Sports & outdoor', seasonal: 'Seasonal & holiday', decor: 'Decor', cleaning: 'Cleaning', personal: 'Personal care', hobby: 'Hobby & crafts', other: 'Other' } },
+    tr: { title: 'Paylaşılan kutu', items: 'İçindekiler', none: 'Bu kutuda listelenmiş bir şey yok.', fragile: 'Kırılabilir', noPlace: 'Yeri yok', gone: 'Bu bağlantı kapatılmış ya da yok.', fail: 'Kutu yüklenemedi. Bağlantını kontrol edip tekrar dene.', foot: 'Kutu Bul ile paylaşıldı', open: 'Uygulamayı aç',
+      cats: { tools: 'Aletler', electronics: 'Elektronik ve kablolar', kitchen: 'Mutfak', clothing: 'Giyim ve ayakkabı', bedding: 'Ev tekstili', books: 'Kitap ve kâğıt', documents: 'Belgeler', toys: 'Oyuncak ve oyunlar', sports: 'Spor ve kamp', seasonal: 'Mevsimlik ve süs', decor: 'Dekorasyon', cleaning: 'Temizlik', personal: 'Kişisel bakım', hobby: 'Hobi ve el işi', other: 'Diğer' } }
+  }[lang === 'tr' ? 'tr' : 'en'];
+  var ORDER = ['tools', 'electronics', 'kitchen', 'clothing', 'bedding', 'books', 'documents', 'toys', 'sports', 'seasonal', 'decor', 'cleaning', 'personal', 'hobby', 'other'];
+  document.documentElement.lang = lang === 'tr' ? 'tr' : 'en';
+  document.title = T.title;
+  var out = document.getElementById('out');
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function msg(text) { out.innerHTML = '<p class="msg">' + esc(text) + '</p><p class="foot"><a href="/">' + esc(T.open) + '</a></p>'; }
+  var id = params.get('id');
+  var cfg = window.APP_CONFIG || {};
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) { msg(T.gone); return; }
+  if (!window.__TEST_SUPABASE__ && (!window.supabase || !cfg.SUPABASE_URL)) { msg(T.fail); return; }
+  var client = window.__TEST_SUPABASE__ || window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+  client.rpc('get_shared_box', { p_share: id }).then(function (res) {
+    if (res.error) { msg(T.fail); return; }
+    var b = res.data;
+    if (!b) { msg(T.gone); return; }
+    document.title = b.code + ' ' + b.name;
+    var items = b.items || [];
+    var groups = ORDER.map(function (c) { return { c: c, list: items.filter(function (i) { return (ORDER.indexOf(i.category) >= 0 ? i.category : 'other') === c; }) }; }).filter(function (g) { return g.list.length; });
+    out.innerHTML =
+      (b.brand_name ? '<p class="brand">' + esc(b.brand_name) + '</p>' : '') +
+      '<section class="label"><div class="code">' + esc(b.code) + '</div><h1>' + esc(b.name) + '</h1>' +
+      '<p class="place">' + esc((b.place || T.noPlace) + (b.spot ? ', ' + b.spot : '')) + '</p>' +
+      (b.fragile ? '<span class="fragile">' + esc(T.fragile) + '</span>' : '') + '</section>' +
+      '<h2>' + esc(T.items) + '</h2>' +
+      (groups.length ? groups.map(function (g) {
+        return '<p class="cat">' + esc(T.cats[g.c]) + '</p><ul>' + g.list.map(function (i) {
+          return '<li><span>' + esc(i.name) + '</span>' + (i.quantity > 1 ? '<span class="qty">×' + esc(i.quantity) + '</span>' : '') + '</li>';
+        }).join('') + '</ul>';
+      }).join('') : '<p class="msg">' + esc(T.none) + '</p>') +
+      '<p class="foot">' + esc(T.foot) + '</p>';
+  }, function () { msg(T.fail); });
+})();
+</script>
+</body>
+</html>

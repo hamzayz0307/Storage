@@ -4,9 +4,9 @@
   "type": "module",
   "description": "Tests only. The app itself has no build step and no dependencies.",
   "scripts": {
-    "test": "node schema.test.mjs && node smoke.mjs",
-    "test:db": "node schema.test.mjs",
-    "test:app": "node smoke.mjs"
+    "test": "node schema.test.mjs && node features.test.mjs && node smoke.mjs && node features.smoke.mjs && node i18n.check.mjs",
+    "test:db": "node schema.test.mjs && node features.test.mjs",
+    "test:app": "node smoke.mjs && node features.smoke.mjs"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

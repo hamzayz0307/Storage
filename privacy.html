@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy</title>
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<style>
+:root { --bg: #E6E9EC; --surface: #fff; --line: #D5DADF; --ink: #1D2430; --ink-2: #4A5563; --ink-3: #737E8C; --kraft: #C99D66; --kraft-ink: #2A1E10; color-scheme: light; }
+@media (prefers-color-scheme: dark) { :root { --bg: #14171B; --surface: #1F242A; --line: #2E353D; --ink: #E7EAEE; --ink-2: #B3BBC5; --ink-3: #8792A0; --kraft: #BE9260; color-scheme: dark; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 400 16px/1.6 'Instrument Sans', system-ui, sans-serif; }
+main { max-width: 680px; margin: 0 auto; padding: 24px 16px 60px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.top a { color: var(--ink-2); font-weight: 600; }
+.lang a { margin-left: 10px; color: var(--ink-3); }
+.lang a[aria-current] { color: var(--ink); font-weight: 700; text-decoration: none; }
+h1 { margin: 0 0 4px; font: 800 40px/1 'Big Shoulders', 'Arial Narrow', sans-serif; }
+.date { margin: 0 0 24px; color: var(--ink-3); }
+h2 { margin: 28px 0 6px; font: 700 23px/1.2 'Big Shoulders', 'Arial Narrow', sans-serif; }
+p, li { max-width: 64ch; color: var(--ink-2); }
+ul { padding-left: 20px; }
+a { color: inherit; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <div class="top"><a href="/">← Box Finder</a><span class="lang"><a href="?lang=en" data-l="en">English</a><a href="?lang=tr" data-l="tr">Türkçe</a></span></div>
+
+  <article lang="en" data-lang="en">
+    <h1>Privacy policy</h1>
+    <p class="date">Last updated 20 October 2026</p>
+    <p>Box Finder helps you remember what is in your storage boxes. This page explains what the app stores, who processes it and how to delete it. It is a small independent project, not a large company.</p>
+
+    <h2>What the app stores</h2>
+    <ul>
+      <li>Your account: email address and password (stored only as a secure hash), or your Google account email if you sign in with Google.</li>
+      <li>What you add: spaces, places and units, boxes, items, notes, quantities, values, serial numbers, expiry and warranty dates, reminders, photos of boxes and receipts, and your name if you enter one.</li>
+      <li>Shared spaces: who is a member and with which role, invite links, retrieval requests, and an activity log of changes (who did what, and when).</li>
+      <li>Feedback you send from the app.</li>
+      <li>A daily count of AI photo scans, to keep within the daily limit.</li>
+    </ul>
+
+    <h2>Who processes it</h2>
+    <ul>
+      <li><b>Supabase</b> stores the database, the sign-in and the photos.</li>
+      <li><b>Google (Gemini API)</b> receives the photos you choose to scan, only when you press “Find items” or “Read the label with AI”, and returns a list of what it sees. Google processes them under the <a href="https://ai.google.dev/gemini-api/terms" rel="noopener">Gemini API terms</a>.</li>
+      <li><b>Vercel</b> hosts the app’s web pages.</li>
+      <li><b>Google sign-in</b>, if you use it, shares your email address with the app.</li>
+    </ul>
+    <p>The app does not show ads, does not sell data and does not use tracking cookies.</p>
+
+    <h2>Who can see your things</h2>
+    <p>Only you, unless you invite people to a space. Editors and viewers see the whole space; customers of a business space see only the units they were given. A box share link shows that box’s name, place and item list to anyone who has the link, until you turn the link off. Values, serial numbers and notes are never included in share links.</p>
+
+    <h2>On your phone</h2>
+    <p>The app keeps a copy of the current space in your browser so it works without signal, plus your language and appearance settings. Signing out or clearing the browser’s site data removes it.</p>
+
+    <h2>Deleting your data</h2>
+    <p>In the app, go to Me → Delete my account. This deletes your account, every space you own with all its boxes, items, photos and history, and your memberships in other spaces. You can also leave a space or delete a single space from its settings.</p>
+
+    <h2>Contact</h2>
+    <p>Use “Send feedback” in the app (Me page). We’ll update this page when the app starts collecting something new.</p>
+  </article>
+
+  <article lang="tr" data-lang="tr" hidden>
+    <h1>Gizlilik politikası</h1>
+    <p class="date">Son güncelleme 20 Ekim 2026</p>
+    <p>Kutu Bul, depo kutularında ne olduğunu hatırlamana yardım eder. Bu sayfa uygulamanın ne sakladığını, kimin işlediğini ve nasıl silebileceğini anlatır. Büyük bir şirket değil, küçük ve bağımsız bir projedir.</p>
+
+    <h2>Uygulamanın sakladıkları</h2>
+    <ul>
+      <li>Hesabın: e-posta adresin ve şifren (yalnızca güvenli bir özet olarak), ya da Google ile giriş yaptıysan Google hesabının e-postası.</li>
+      <li>Eklediklerin: alanlar, yerler ve birimler, kutular, eşyalar, notlar, adetler, değerler, seri numaraları, son kullanma ve garanti tarihleri, hatırlatmalar, kutu ve fiş fotoğrafları, girersen adın.</li>
+      <li>Paylaşılan alanlar: kimin hangi rolle üye olduğu, davet bağlantıları, kutu talepleri ve değişikliklerin hareket kaydı (kim neyi ne zaman yaptı).</li>
+      <li>Uygulamadan gönderdiğin geri bildirimler.</li>
+      <li>Günlük sınırın aşılmaması için yapay zekâ fotoğraf taramalarının günlük sayısı.</li>
+    </ul>
+
+    <h2>Kim işliyor</h2>
+    <ul>
+      <li><b>Supabase</b> veritabanını, girişi ve fotoğrafları saklar.</li>
+      <li><b>Google (Gemini API)</b> yalnızca “Eşyaları bul” ya da “Etiketi yapay zekâyla oku” düğmesine bastığında seçtiğin fotoğrafları alır ve gördüklerinin listesini döndürür. Google bunları <a href="https://ai.google.dev/gemini-api/terms" rel="noopener">Gemini API koşullarına</a> göre işler.</li>
+      <li><b>Vercel</b> uygulamanın web sayfalarını barındırır.</li>
+      <li><b>Google ile giriş</b> kullanırsan e-posta adresin uygulamayla paylaşılır.</li>
+    </ul>
+    <p>Uygulama reklam göstermez, veri satmaz ve takip çerezleri kullanmaz.</p>
+
+    <h2>Eşyalarını kim görebilir</h2>
+    <p>Bir alana birini davet etmedikçe yalnızca sen. Düzenleyiciler ve izleyiciler alanın tamamını görür; işletme alanlarındaki müşteriler yalnızca kendilerine verilen birimleri görür. Kutu paylaşım bağlantısı, sen kapatana kadar bağlantıya sahip herkese o kutunun adını, yerini ve eşya listesini gösterir. Değerler, seri numaraları ve notlar paylaşım bağlantılarında hiçbir zaman yer almaz.</p>
+
+    <h2>Telefonunda</h2>
+    <p>Uygulama, çekmeyen yerlerde de çalışsın diye açık alanın bir kopyasını tarayıcında tutar; dil ve görünüm ayarların da orada durur. Çıkış yapmak ya da tarayıcının site verilerini temizlemek bunları siler.</p>
+
+    <h2>Verilerini silmek</h2>
+    <p>Uygulamada Ben → Hesabımı sil yolunu izle. Bu; hesabını, sahibi olduğun tüm alanları içlerindeki kutular, eşyalar, fotoğraflar ve geçmişle birlikte ve diğer alanlardaki üyeliklerini siler. Bir alandan ayrılabilir ya da tek bir alanı ayarlarından silebilirsin.</p>
+
+    <h2>İletişim</h2>
+    <p>Uygulamadaki “Geri bildirim gönder”i kullan (Ben sayfası). Uygulama yeni bir şey toplamaya başladığında bu sayfayı güncelleyeceğiz.</p>
+  </article>
+</main>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search).get('lang');
+  var lang = q === 'tr' || q === 'en' ? q : (/^tr\b/i.test(navigator.language || '') ? 'tr' : 'en');
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-lang]').forEach(function (a) { a.hidden = a.dataset.lang !== lang; });
+  document.querySelectorAll('[data-l]').forEach(function (a) { if (a.dataset.l === lang) a.setAttribute('aria-current', 'true'); });
+  document.title = lang === 'tr' ? 'Gizlilik politikası' : 'Privacy policy';
+})();
+</script>
+</body>
+</html>

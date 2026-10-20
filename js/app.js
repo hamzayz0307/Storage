@@ -34,8 +34,53 @@ const S = {
   sheetOnClose: null,
   installEvt: null,
   recovering: false,
-  pendingAuthMessage: null
+  pendingAuthMessage: null,
+  items: [],          // every item you can see in the current space (for offline, lists, export)
+  spaces: [],         // all spaces you're a member of
+  offline: false,
+  select: null        // Set of box ids while selecting several boxes
 };
+
+// What the signed-in person may do in the current space.
+const ROLE = {
+  canEdit: () => S.role === 'owner' || S.role === 'editor',
+  isStaff: () => S.role !== 'customer',
+  isOwner: () => S.role === 'owner'
+};
+function isBusiness() { return !!(S.space && S.space.kind === 'business'); }
+
+// Feature files plug into these. Each hook returns an HTML string (or nothing).
+const HOOKS = {
+  afterLoad: [],      // async () → after boxes/items are loaded
+  bootFailed: [],     // async (err) → true if it handled the failure (offline copy)
+  afterBoot: [],      // async () → after the first page is shown (invite links)
+  homeTop: [],        // () → cards above the box grid
+  tileBadges: [],     // (box) → small badges on a box tile
+  heroBadges: [],     // (box) → badges on the box page label
+  boxActions: [],     // (box) → buttons under the photo strip
+  boxSections: [],    // (box, items) → sections after the item list
+  boxMenu: [],        // (box) → extra <li> rows in the box menu
+  itemBadges: [],     // (item) → badges in an item row
+  itemEditor: [],     // { html(item), bind(sheet, item), collect(form, item) → values }
+  boxForm: [],        // { html(box), bind(sheet, box), collect(form, box) → values }
+  placeForm: [],      // { html(loc), bind(sheet, loc), collect(form, loc) → values }
+  labelExtra: [],     // (box) → extra lines on a printed label
+  labelColor: [],     // (box) → colour for the label band, first one wins
+  meSections: [],     // () → sections on the Me page
+  searchExtra: []     // (row) → badges in a search result
+};
+const PAGES = {};     // extra pages: name → { render(id), tab }
+function runHooks(name, ...args) {
+  return HOOKS[name].map((fn) => {
+    try { return fn(...args) || ''; } catch (e) { console.error(e); return ''; }
+  }).join('');
+}
+function firstHook(name, ...args) {
+  for (const fn of HOOKS[name]) {
+    try { const v = fn(...args); if (v) return v; } catch (e) { console.error(e); }
+  }
+  return null;
+}
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
@@ -76,12 +121,68 @@ const ICONS = {
   check: 'M5 12l5 5 9-10',
   printer: 'M7 9V3h10v6M7 18H5a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M7 14h10v7H7z',
   chevron: 'M9 6l6 6-6 6',
-  download: 'M12 4v11M7 10l5 5 5-5M5 20h14'
+  download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  chevronDown: 'M6 9l6 6 6-6',
+  share: 'M12 15V4M8 8l4-4 4 4M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6',
+  bell: 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4',
+  out: 'M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5M10 16l-4-4 4-4M6 12h10',
+  clock: 'M12 21a9 9 0 1 0 0-18a9 9 0 1 0 0 18zM12 7v5l3 2',
+  plug: 'M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4',
+  truck: 'M3 6h11v10H3zM14 10h4l3 3v3h-7M7 19a2 2 0 1 0 0-4a2 2 0 1 0 0 4zM17 19a2 2 0 1 0 0-4a2 2 0 1 0 0 4',
+  users: 'M9 11a4 4 0 1 0 0-8a4 4 0 1 0 0 8zM2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 7M22 21a7 7 0 0 0-4-6.3',
+  list: 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  file: 'M6 3h8l5 5v13H6zM14 3v5h5',
+  money: 'M3 7h18v10H3zM12 15a3 3 0 1 0 0-6a3 3 0 1 0 0 6zM6 10v.01M18 14v.01',
+  alert: 'M12 3l10 18H2zM12 10v4M12 17v.01',
+  check2: 'M4 12l5 5L20 6',
+  message: 'M4 5h16v11H8l-4 4z',
+  shield: 'M12 3l8 3v6c0 5-3.5 8-8 9c-4.5-1-8-4-8-9V6z',
+  layers: 'M12 3l9 5-9 5-9-5zM3 13l9 5 9-5',
+  home: 'M3 11l9-7 9 7M5 10v10h14V10',
+  history: 'M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 8v4l3 2',
+  inbox: 'M3 13l3-8h12l3 8v6H3zM3 13h5l1 2h6l1-2h5'
 };
 function icon(name, extra) {
   const sw = name === 'more' ? ' style="stroke-width:3"' : '';
   return `<svg class="i${extra ? ' ' + extra : ''}" viewBox="0 0 24 24" aria-hidden="true"${sw}><path d="${ICONS[name]}"/></svg>`;
 }
+
+// Same folding as the database (fold_text): lowercase, Turkish letters → plain.
+const FOLD_FROM = 'çğıöşüâîûéèêàáäëïô';
+const FOLD_TO = 'cgiosuaiueeeaaaeio';
+function fold(v) {
+  return String(v == null ? '' : v).replace(/İ/g, 'i').toLowerCase().replace(/\u0307/g, '')
+    .replace(/[çğıöşüâîûéèêàáäëïô]/g, (c) => FOLD_TO[FOLD_FROM.indexOf(c)]);
+}
+function isNetError(err) {
+  if (!navigator.onLine) return true;
+  return !!(err && /fetch|network|load failed|offline/i.test(String(err.message || err)));
+}
+function locale() { return S.lang === 'tr' ? 'tr-TR' : 'en-GB'; }
+function fmtDate(d, opts) {
+  if (!d) return '';
+  const date = typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(d + 'T12:00:00') : new Date(d);
+  return new Intl.DateTimeFormat(locale(), opts || { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+}
+function todayISO() {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+}
+function daysUntil(iso) {
+  if (!iso) return null;
+  const a = new Date(todayISO() + 'T12:00:00'), b = new Date(iso + 'T12:00:00');
+  return Math.round((b - a) / 86400000);
+}
+function money(v) {
+  const cur = (S.space && S.space.currency) || 'TRY';
+  try { return new Intl.NumberFormat(locale(), { style: 'currency', currency: cur, maximumFractionDigits: 2 }).format(Number(v) || 0); }
+  catch (e) { return (Number(v) || 0).toFixed(2) + ' ' + cur; }
+}
+function badge(text, tone, iconName) {
+  return `<span class="badge-pill${tone ? ' ' + tone : ''}">${iconName ? icon(iconName) : ''}${esc(text)}</span>`;
+}
+function boxById(id) { return S.boxes.find((b) => b.id === id); }
+function itemsOf(boxId) { return S.items.filter((i) => i.box_id === boxId); }
 
 function debounce(fn, ms) { let tm; return (...a) => { clearTimeout(tm); tm = setTimeout(() => fn(...a), ms); }; }
 
@@ -188,21 +289,41 @@ function confirmSheet({ title, body, confirm, danger }) {
 /* =====================================================================
    Data
    ===================================================================== */
+const ITEM_COLS = 'id,box_id,name,category,quantity,notes,source,created_at,checked_out_at,checked_out_to,expires_on,value,receipt_path,kind,brand,model,serial,purchased_on,warranty_until';
 async function loadLocations() {
-  S.locations = must(await sb.from('locations').select('id,name,notes,created_at').eq('space_id', S.space.id).order('name')) || [];
+  S.locations = must(await sb.from('locations').select('id,name,notes,color,created_at').eq('space_id', S.space.id).order('name')) || [];
   S.locations.sort((a, b) => collator().compare(a.name, b.name));
 }
 async function loadBoxes() {
   S.boxes = must(await sb.rpc('list_boxes', { p_space: S.space.id })) || [];
 }
-async function loadAll() { await Promise.all([loadLocations(), loadBoxes()]); }
+async function loadItems() {
+  const all = [];
+  for (let from = 0; ; from += 1000) {
+    const rows = must(await sb.from('items').select(ITEM_COLS).eq('space_id', S.space.id).order('created_at').range(from, from + 999)) || [];
+    all.push(...rows);
+    if (rows.length < 1000) break;
+  }
+  S.items = all;
+}
+async function loadAll() {
+  await Promise.all([loadLocations(), loadBoxes(), loadItems()]);
+  for (const fn of HOOKS.afterLoad) {
+    try { await fn(); } catch (e) { console.error(e); }
+  }
+}
 async function fetchItems(boxId) {
-  return must(await sb.from('items').select('id,box_id,name,category,quantity,notes,source,created_at').eq('box_id', boxId).order('name')) || [];
+  const rows = must(await sb.from('items').select(ITEM_COLS).eq('box_id', boxId).order('name')) || [];
+  S.items = S.items.filter((i) => i.box_id !== boxId).concat(rows);
+  return rows;
 }
 async function fetchPhotos(boxId) {
   return must(await sb.from('box_photos').select('id,box_id,path,created_at').eq('box_id', boxId).order('created_at')) || [];
 }
 function locationName(id) { const l = S.locations.find((x) => x.id === id); return l ? l.name : ''; }
+// Only real colour codes ever reach a style attribute.
+function safeColor(c) { return /^#[0-9a-f]{6}$/i.test(String(c || '')) ? c : null; }
+function locationColor(id) { const l = S.locations.find((x) => x.id === id); return l ? safeColor(l.color) : null; }
 function placeText(box) {
   const loc = locationName(box.location_id) || t('no_place');
   return box.spot ? `${loc}, ${box.spot}` : loc;
@@ -287,7 +408,12 @@ async function uploadPhotos(box, prepared) {
   }
   return inserted;
 }
+// Every file that belongs to a box: photos and item receipts.
+function boxFilePaths(box, items, photos) {
+  return (photos || []).map((p) => p.path).concat((items || []).map((i) => i.receipt_path).filter(Boolean));
+}
 async function removeFiles(paths) {
+  paths = (paths || []).filter(Boolean);
   for (let i = 0; i < paths.length; i += 100) {
     await sb.storage.from(BUCKET).remove(paths.slice(i, i + 100));
   }
@@ -349,12 +475,14 @@ function renderFatal(err, retry) {
 
 async function start() {
   setLang(initialLang(), false);
+  // A scanned label opens  /?box=<id>. Keep it through sign-in (also Google's redirect).
+  const boxParam = new URLSearchParams(location.search).get('box');
+  if (boxParam) { try { sessionStorage.setItem('bf_pending_box', boxParam); } catch (e) {} }
   if (!sb) { renderSetupNeeded(); return; }
   // Opened from a "set a new password" email: show the password form, not the app.
   if (/type=recovery/.test(location.hash + location.search)) S.recovering = true;
   sb.auth.onAuthStateChange((event, session) => { setTimeout(() => onAuth(event, session), 0); });
 }
-
 let booting = false;
 async function onAuth(event, session) {
   if (event === 'PASSWORD_RECOVERY') { S.recovering = true; S.session = session; renderNewPassword(); return; }
@@ -376,34 +504,74 @@ async function bootstrap() {
   renderLoading();
   try {
     const data = must(await sb.rpc('bootstrap_me', { p_language: S.lang, p_space_name: t('default_space') }));
-    S.profile = data.profile;
-    S.space = data.space;
-    S.role = data.role;
-    if (S.profile && S.profile.language && S.profile.language !== S.lang) setLang(S.profile.language, false);
+    applyBoot(data);
     await loadAll();
     if (S.recovering) return;
-    S.loaded = true;
-    document.body.classList.add('signed-in');
-    const params = new URLSearchParams(location.search);
-    const boxParam = params.get('box');
-    if (boxParam) history.replaceState(null, '', location.pathname + '#/box/' + encodeURIComponent(boxParam));
-    route();
+    S.offline = false;
+    await finishBoot();
   } catch (e) {
     console.error(e);
+    for (const fn of HOOKS.bootFailed) {
+      try { if (await fn(e)) return; } catch (ex) { console.error(ex); }
+    }
     renderFatal(e, bootstrap);
   } finally {
     booting = false;
   }
 }
+function applyBoot(data) {
+  S.profile = data.profile;
+  S.space = data.space;
+  S.role = data.role || 'owner';
+  S.spaces = data.spaces || [];
+  if (S.profile && S.profile.language && S.profile.language !== S.lang) setLang(S.profile.language, false);
+  applySpaceLook();
+}
+// Role and branding change what's on screen (CSS hides editing controls etc.).
+function applySpaceLook() {
+  document.body.classList.toggle('role-customer', S.role === 'customer');
+  document.body.classList.toggle('read-only', !ROLE.canEdit());
+  document.body.classList.toggle('is-business', isBusiness());
+  const brand = isBusiness() ? safeColor(S.space.brand_color) : null;
+  if (brand) document.documentElement.style.setProperty('--brand', brand);
+  else document.documentElement.style.removeProperty('--brand');
+}
+async function finishBoot() {
+  S.loaded = true;
+  document.body.classList.add('signed-in');
+  let boxParam = null;
+  try { boxParam = sessionStorage.getItem('bf_pending_box'); sessionStorage.removeItem('bf_pending_box'); } catch (e) {}
+  if (location.search) history.replaceState(null, '', location.pathname + location.hash);
+  if (boxParam) history.replaceState(null, '', location.pathname + '#/box/' + encodeURIComponent(boxParam));
+  route();
+  for (const fn of HOOKS.afterBoot) {
+    try { await fn(); } catch (e) { console.error(e); }
+  }
+}
+// Reload everything for the current space (after switching spaces, coming back online…).
+async function reloadSpace(goHome) {
+  const data = must(await sb.rpc('bootstrap_me', { p_language: S.lang, p_space_name: t('default_space') }));
+  applyBoot(data);
+  S.filter = 'all';
+  S.query = '';
+  S.select = null;
+  S.labelSel = null;
+  S.current = null;
+  await loadAll();
+  S.offline = false;
+  if (goHome && location.hash !== '#/' && location.hash !== '') location.hash = '#/';
+  else route();
+}
 function resetSignedOut() {
-  Object.assign(S, { session: null, user: null, profile: null, space: null, locations: [], boxes: [], loaded: false, filter: 'all', query: '', current: null, aiLimit: null, aiRemaining: null, labelSel: null });
+  Object.assign(S, { session: null, user: null, profile: null, space: null, locations: [], boxes: [], items: [], spaces: [], loaded: false, filter: 'all', query: '', current: null, aiLimit: null, aiRemaining: null, labelSel: null, select: null, offline: false, role: 'owner' });
   urlCache.clear();
   closeSheet();
   closeScanner();
-  document.body.classList.remove('signed-in');
+  document.body.classList.remove('signed-in', 'role-customer', 'read-only', 'is-business');
+  document.documentElement.style.removeProperty('--brand');
   document.body.dataset.page = 'auth';
 }
-
+const GOOGLE_G = '<svg class="g-logo" viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.4h6.5a5.6 5.6 0 0 1-2.4 3.6v3h3.9c2.2-2.1 3.5-5.1 3.5-8.7z"/><path fill="#34A853" d="M12 24c3.2 0 6-1.1 7.9-2.9l-3.9-3c-1.1.7-2.4 1.2-4 1.2-3.1 0-5.7-2.1-6.6-4.9h-4v3.1A12 12 0 0 0 12 24z"/><path fill="#FBBC05" d="M5.4 14.4a7.2 7.2 0 0 1 0-4.6V6.7h-4a12 12 0 0 0 0 10.8z"/><path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4A12 12 0 0 0 1.4 6.7l4 3.1C6.3 6.9 8.9 4.8 12 4.8z"/></svg>';
 function renderAuth(mode, message) {
   document.body.dataset.page = 'auth';
   const isIn = mode === 'in';
@@ -428,7 +596,10 @@ function renderAuth(mode, message) {
         <button class="btn primary big" type="submit">${isIn ? t('sign_in') : t('create_account')}</button>
         ${isIn ? `<button type="button" class="link-btn auth-forgot" id="forgotBtn">${t('forgot_password')}</button>` : ''}
       </form>
+      <div class="auth-or"><span>${t('or')}</span></div>
+      <button type="button" class="btn big block google-btn" id="googleBtn">${GOOGLE_G}<span>${t('continue_google')}</span></button>
       <p class="auth-switch">${isIn ? t('no_account') : t('have_account')} <button type="button" class="link-btn" id="authSwitch">${isIn ? t('create_account') : t('sign_in')}</button></p>
+      <p class="auth-legal"><a href="/privacy.html?lang=${S.lang}">${t('privacy_policy')}</a></p>
     </div>`;
 
   const form = $('#authForm');
@@ -437,6 +608,10 @@ function renderAuth(mode, message) {
   const showErr = (m) => { err.textContent = m; err.hidden = false; note.hidden = true; };
   $$('[data-auth-lang]').forEach((b) => b.onclick = () => { setLang(b.dataset.authLang, false); renderAuth(mode); });
   $('#authSwitch').onclick = () => renderAuth(isIn ? 'up' : 'in');
+  $('#googleBtn').onclick = async () => {
+    const res = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + location.pathname } });
+    if (res && res.error) showErr(friendlyError(res.error));
+  };
   if (isIn) {
     $('#forgotBtn').onclick = async () => {
       const email = form.email.value.trim();
@@ -510,14 +685,19 @@ function route() {
   if (!S.loaded) return;
   closeSheet();
   const r = currentRoute();
-  const page = ['places', 'labels', 'me', 'box'].includes(r.name) ? r.name : 'boxes';
+  if (S.select && r.name !== '') S.select = null;
+  const custom = PAGES[r.name];
+  const page = custom ? r.name : (['places', 'labels', 'me', 'box'].includes(r.name) ? r.name : 'boxes');
+  if (S.role === 'customer' && (page === 'places' || page === 'labels')) { location.hash = '#/'; return; }
   document.body.dataset.page = page;
+  const tab = custom ? custom.tab : (page === 'box' ? 'boxes' : page);
   $$('#tabbar .tab[data-page]').forEach((a) => {
-    if (a.dataset.page === page || (page === 'box' && a.dataset.page === 'boxes')) a.setAttribute('aria-current', 'page');
+    if (a.dataset.page === tab) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   });
   window.scrollTo(0, 0);
-  if (page === 'box') renderBox(r.id);
+  if (custom) custom.render(r.id);
+  else if (page === 'box') renderBox(r.id);
   else if (page === 'places') renderPlaces();
   else if (page === 'labels') renderLabels();
   else if (page === 'me') renderMe();
@@ -528,19 +708,30 @@ window.addEventListener('hashchange', route);
 /* =====================================================================
    Boxes (home)
    ===================================================================== */
+function placeDot(locId) {
+  const c = locationColor(locId);
+  return c ? `<span class="dot" style="background:${esc(c)}"></span>` : icon('pin');
+}
 function boxTile(b) {
-  return `
-    <a class="tile" href="#/box/${encodeURIComponent(b.id)}">
-      <div class="tile-label kraft"><span class="code">${esc(b.code)}</span></div>
+  const picking = !!S.select;
+  const picked = picking && S.select.has(b.id);
+  const inner = `
+      <div class="tile-label kraft">
+        <span class="code">${esc(b.code)}</span>
+        ${picking ? `<span class="tick" aria-hidden="true">${picked ? icon('check') : ''}</span>` : ''}
+      </div>
       <div class="tile-photo">
         ${b.cover_path ? `<img data-path="${esc(b.cover_path)}" alt="">` : `<div class="ph">${icon('box')}</div>`}
       </div>
       <div class="tile-body">
         <div class="tile-name">${esc(b.name)}</div>
         <div class="tile-meta">${tp('n_items', b.item_count || 0)}</div>
-        <div class="tile-place">${icon('pin')}<span>${esc(placeText(b))}</span></div>
-      </div>
-    </a>`;
+        <div class="tile-place">${placeDot(b.location_id)}<span>${esc(placeText(b))}</span></div>
+        ${(() => { const x = runHooks('tileBadges', b); return x ? `<div class="tile-badges">${x}</div>` : ''; })()}
+      </div>`;
+  return picking
+    ? `<button type="button" class="tile${picked ? ' picked' : ''}" data-act="toggle-select" data-id="${esc(b.id)}" aria-pressed="${picked}">${inner}</button>`
+    : `<a class="tile" href="#/box/${encodeURIComponent(b.id)}">${inner}</a>`;
 }
 function filteredBoxes() {
   if (S.filter === 'all') return S.boxes;
@@ -549,9 +740,18 @@ function filteredBoxes() {
 }
 function renderBoxes() {
   const items = S.boxes.reduce((n, b) => n + (b.item_count || 0), 0);
+  const logo = isBusiness() && S.space.logo_path ? `<img class="brand-logo" data-path="${esc(S.space.logo_path)}" alt="">` : '';
+  const brand = isBusiness() && (S.space.brand_name || logo) ? `<div class="brand-row">${logo}<span>${esc(S.space.brand_name || '')}</span></div>` : '';
+  const canSelect = ROLE.canEdit() && S.boxes.length > 1;
   $('#view').innerHTML = `
-    <header class="page-head">
-      <h1 class="page-title">${esc(S.space.name)}</h1>
+    <header class="page-head home-head">
+      ${brand}
+      <div class="head-row">
+        <button type="button" class="space-btn" data-act="switch-space" aria-label="${t('switch_space')}">
+          <h1 class="page-title">${esc(S.space.name)}</h1>${icon('chevronDown')}
+        </button>
+        ${canSelect ? `<button type="button" class="btn small" data-act="select-mode">${S.select ? t('done') : t('select')}</button>` : ''}
+      </div>
       <p class="page-sub">${tp('n_boxes', S.boxes.length)}, ${tp('n_items', items)}</p>
     </header>
     <div class="search" role="search">
@@ -560,7 +760,8 @@ function renderBoxes() {
       <button type="button" class="icon-btn" data-act="clear-search" aria-label="${t('clear')}" ${S.query ? '' : 'hidden'}>${icon('close')}</button>
     </div>
     <div id="homeBody"></div>
-    <button type="button" class="fab" data-act="new-box">${icon('plus')}<span>${t('new_box')}</span></button>`;
+    ${ROLE.canEdit() && !S.select ? `<button type="button" class="fab" data-act="new-box">${icon('plus')}<span>${t('new_box')}</span></button>` : ''}
+    <div id="selectBar"></div>`;
   const q = $('#q');
   q.addEventListener('input', () => {
     S.query = q.value;
@@ -568,6 +769,7 @@ function renderBoxes() {
     runSearch();
   });
   q.addEventListener('keydown', (e) => { if (e.key === 'Escape') { q.value = ''; S.query = ''; renderHomeBody(); } });
+  hydrateImages($('.home-head'));
   renderHomeBody();
 }
 function renderHomeBody() {
@@ -575,28 +777,58 @@ function renderHomeBody() {
   if (!body) return;
   $('[data-act="clear-search"]') && ($('[data-act="clear-search"]').hidden = !S.query.trim());
   if (S.query.trim()) { runSearchNow(); return; }
+  const top = S.select ? '' : runHooks('homeTop');
   if (!S.boxes.length) {
-    body.innerHTML = `
+    body.innerHTML = top + (ROLE.canEdit() ? `
       <div class="empty">
         <h2>${t('empty_boxes_title')}</h2>
         <p>${t('empty_boxes_body')}</p>
         <button type="button" class="btn primary" data-act="new-box">${icon('plus')}${t('create_first_box')}</button>
-      </div>`;
+      </div>` : `<div class="empty"><p>${S.role === 'customer' ? t('customer_no_boxes') : t('viewer_no_boxes')}</p></div>`);
     return;
   }
   if (S.filter !== 'all' && S.filter !== 'none' && !S.locations.some((l) => l.id === S.filter)) S.filter = 'all';
   const noPlace = S.boxes.filter((b) => !b.location_id).length;
-  const chip = (id, label, n) => `<button type="button" class="chip" data-act="filter" data-id="${esc(id)}" aria-pressed="${S.filter === id}">${esc(label)}<span class="n">${n}</span></button>`;
-  const chips = S.locations.length
-    ? `<div class="chips">${chip('all', t('filter_all'), S.boxes.length)}${S.locations.map((l) => chip(l.id, l.name, S.boxes.filter((b) => b.location_id === l.id).length)).join('')}${noPlace ? chip('none', t('no_place'), noPlace) : ''}</div>`
+  const chip = (id, label, n, color) => `<button type="button" class="chip" data-act="filter" data-id="${esc(id)}" aria-pressed="${S.filter === id}">${safeColor(color) ? `<span class="dot" style="background:${esc(color)}"></span>` : ''}${esc(label)}<span class="n">${n}</span></button>`;
+  const chips = S.locations.length > (S.role === 'customer' ? 1 : 0)
+    ? `<div class="chips">${chip('all', t('filter_all'), S.boxes.length)}${S.locations.map((l) => chip(l.id, l.name, S.boxes.filter((b) => b.location_id === l.id).length, l.color)).join('')}${noPlace ? chip('none', t('no_place'), noPlace) : ''}</div>`
     : '';
   const list = filteredBoxes();
-  body.innerHTML = chips + (list.length ? `<div class="grid">${list.map(boxTile).join('')}</div>` : `<div class="empty"><p>${t('empty_filter')}</p></div>`);
+  body.innerHTML = top + chips + (list.length ? `<div class="grid">${list.map(boxTile).join('')}</div>` : `<div class="empty"><p>${t('empty_filter')}</p></div>`);
   hydrateImages(body);
+  if (typeof renderSelectBar === 'function') renderSelectBar();
 }
-
 let searchSeq = 0;
 const runSearch = debounce(() => runSearchNow(), 220);
+// Offline (or if the server search fails): search the saved copy on this phone.
+function localSearch(q) {
+  const f = fold(q.trim());
+  if (!f) return [];
+  const rows = [];
+  S.items.forEach((i) => {
+    const hay = fold([i.name, i.notes, i.brand, i.model, i.serial, i.checked_out_to].join(' '));
+    if (!hay.includes(f)) return;
+    const b = boxById(i.box_id);
+    if (!b) return;
+    rows.push({ kind: 'item', item_id: i.id, item_name: i.name, quantity: i.quantity, category: i.category, box_id: b.id, box_code: b.code, box_name: b.name, location_name: locationName(b.location_id), spot: b.spot, checked_out_at: i.checked_out_at, checked_out_to: i.checked_out_to, expires_on: i.expires_on });
+  });
+  S.boxes.forEach((b) => {
+    if (fold([b.code, b.name, b.spot, b.notes].join(' ')).includes(f)) {
+      rows.push({ kind: 'box', box_id: b.id, box_code: b.code, box_name: b.name, location_name: locationName(b.location_id), spot: b.spot });
+    }
+  });
+  return rows.slice(0, 60);
+}
+function searchSummary(rows) {
+  const hits = rows.filter((r) => r.kind === 'item');
+  if (hits.length < 2) return '';
+  const boxes = new Set(hits.map((r) => r.box_id)).size;
+  const pieces = hits.reduce((n, r) => n + (r.quantity || 1), 0);
+  const out = hits.filter((r) => r.checked_out_at).length;
+  let line = t('search_summary', { matches: tp('n_matches', hits.length), boxes: tp('n_boxes', boxes), pieces: tp('n_pieces', pieces) });
+  if (out) line += ' ' + tp('n_out_now', out);
+  return `<p class="results-head">${esc(line)}</p>`;
+}
 async function runSearchNow() {
   const body = $('#homeBody');
   const q = S.query.trim();
@@ -604,21 +836,23 @@ async function runSearchNow() {
   if (!q) { renderHomeBody(); return; }
   const seq = ++searchSeq;
   let rows;
-  try {
-    rows = must(await sb.rpc('search_inventory', { p_space: S.space.id, p_query: q })) || [];
-  } catch (e) {
-    if (seq === searchSeq) body.innerHTML = `<p class="results-head">${esc(friendlyError(e))}</p>`;
-    return;
+  if (S.offline) rows = localSearch(q);
+  else {
+    try {
+      rows = must(await sb.rpc('search_inventory', { p_space: S.space.id, p_query: q })) || [];
+    } catch (e) {
+      rows = localSearch(q);
+    }
   }
   if (seq !== searchSeq || !$('#homeBody')) return;
   if (!rows.length) {
     body.innerHTML = `<div class="empty"><p>${esc(t('results_none', { q }))}</p></div>`;
     return;
   }
-  body.innerHTML = `
+  body.innerHTML = searchSummary(rows) + `
     <ul class="list results">
       ${rows.map((r) => {
-        const box = S.boxes.find((b) => b.id === r.box_id);
+        const box = boxById(r.box_id);
         const where = box ? placeText(box) : (r.location_name || t('no_place')) + (r.spot ? ', ' + r.spot : '');
         const title = r.kind === 'item'
           ? `${esc(r.item_name)}${r.quantity > 1 ? ` <span class="qty">×${r.quantity}</span>` : ''}`
@@ -626,14 +860,14 @@ async function runSearchNow() {
         const sub = r.kind === 'item'
           ? `${esc(r.box_name)}, ${esc(where)}`
           : `<span class="result-kind">${icon('box')}${t('result_box')}</span> ${esc(where)}`;
+        const extra = runHooks('searchExtra', r);
         return `<li><a class="result" href="#/box/${encodeURIComponent(r.box_id)}">
-          <span class="result-main"><span class="result-name">${title}</span><span class="result-where">${sub}</span></span>
+          <span class="result-main"><span class="result-name">${title}</span><span class="result-where">${sub}</span>${extra ? `<span class="result-badges">${extra}</span>` : ''}</span>
           <span class="code-chip kraft">${esc(r.box_code)}</span>
         </a></li>`;
       }).join('')}
     </ul>`;
 }
-
 /* =====================================================================
    Box page
    ===================================================================== */
@@ -644,50 +878,61 @@ function groupItems(items) {
   groups.forEach((g) => g.items.sort((a, b) => coll.compare(a.name, b.name)));
   return groups;
 }
+function itemRow(it) {
+  const badges = runHooks('itemBadges', it);
+  return `<li><button type="button" class="item-row${it.checked_out_at ? ' is-out' : ''}" data-act="edit-item" data-id="${esc(it.id)}">
+    <span class="row-main"><span class="name">${esc(it.name)}</span>${badges ? `<span class="row-badges">${badges}</span>` : ''}</span>
+    ${it.quantity > 1 ? `<span class="qty">×${it.quantity}</span>` : ''}
+  </button></li>`;
+}
 function boxPageHtml(box, items, photos) {
+  const edit = ROLE.canEdit();
   const itemsHtml = items == null
     ? `<div class="center-screen" style="min-height:120px"><div class="spinner"></div></div>`
     : (items.length
       ? groupItems(items).map((g) => `
           <div class="group">
             <h3 class="group-name">${esc(catLabel(g.c))}</h3>
-            <ul class="list">
-              ${g.items.map((it) => `<li><button type="button" class="item-row" data-act="edit-item" data-id="${esc(it.id)}"><span class="name">${esc(it.name)}</span>${it.quantity > 1 ? `<span class="qty">×${it.quantity}</span>` : ''}</button></li>`).join('')}
-            </ul>
+            <ul class="list">${g.items.map(itemRow).join('')}</ul>
           </div>`).join('')
-      : `<div class="empty" style="margin-top:8px"><p>${t('items_empty')}</p></div>`);
+      : `<div class="empty" style="margin-top:8px"><p>${edit ? t('items_empty') : t('items_empty_view')}</p></div>`);
   const photosHtml = (photos || []).map((p) => `
       <button type="button" class="thumb" data-act="view-photo" data-id="${esc(p.id)}" aria-label="${t('photo')}">
         <img data-path="${esc(p.path)}" alt="">
         ${p.id === box.cover_photo_id ? `<span class="badge">${t('cover')}</span>` : ''}
       </button>`).join('');
+  const heroBadges = runHooks('heroBadges', box);
+  const hasMenu = edit || HOOKS.boxMenu.some((fn) => { try { return !!fn(box); } catch (e) { return false; } }) || ROLE.isStaff();
   return `
     <div class="bar">
       <a class="icon-btn" href="#/" aria-label="${t('back')}">${icon('back')}</a>
-      <button type="button" class="icon-btn" data-act="box-menu" aria-label="${t('more')}">${icon('more')}</button>
+      ${hasMenu ? `<button type="button" class="icon-btn" data-act="box-menu" aria-label="${t('more')}">${icon('more')}</button>` : ''}
     </div>
     <section class="label-hero kraft">
       <div class="code-xl">${esc(box.code)}</div>
       <h1 class="hero-name">${esc(box.name)}</h1>
-      <p class="hero-place">${icon('pin')}<span>${esc(placeText(box))}</span></p>
-      <button type="button" class="hero-edit" data-act="edit-box" aria-label="${t('edit_box')}" title="${t('edit_box')}">${icon('edit')}</button>
+      <p class="hero-place">${placeDot(box.location_id)}<span>${esc(placeText(box))}</span></p>
+      ${heroBadges ? `<div class="hero-badges">${heroBadges}</div>` : ''}
+      ${edit ? `<button type="button" class="hero-edit" data-act="edit-box" aria-label="${t('edit_box')}" title="${t('edit_box')}">${icon('edit')}</button>` : ''}
     </section>
     ${box.notes ? `<p class="box-notes">${esc(box.notes)}</p>` : ''}
-    <div class="strip">
+    ${photosHtml || edit ? `<div class="strip">
       ${photosHtml}
-      <button type="button" class="thumb add" data-act="add-photo">${icon('image')}<span>${t('add_photo')}</span></button>
-    </div>
-    <button type="button" class="btn primary big" data-act="scan-contents">${icon('camera')}<span>${t('scan_contents')}</span></button>
+      ${edit ? `<button type="button" class="thumb add" data-act="add-photo">${icon('image')}<span>${t('add_photo')}</span></button>` : ''}
+    </div>` : ''}
+    ${edit ? `<button type="button" class="btn primary big" data-act="scan-contents">${icon('camera')}<span>${t('scan_contents')}</span></button>` : ''}
+    ${runHooks('boxActions', box)}
     <section class="items">
       <h2 class="section-title">${items == null ? '&nbsp;' : tp('n_items', items.length)}</h2>
       ${itemsHtml}
-      <form class="quick-add" id="quickAdd" autocomplete="off">
+      ${edit ? `<form class="quick-add" id="quickAdd" autocomplete="off">
         <label class="sr-only" for="quickAddInput">${t('quick_add_label')}</label>
         <input class="input" id="quickAddInput" placeholder="${t('quick_add_ph')}" enterkeyhint="done" maxlength="500">
         <button class="btn" type="submit">${t('add')}</button>
       </form>
-      <p class="hint">${t('quick_add_hint')}</p>
+      <p class="hint">${t('quick_add_hint')}</p>` : ''}
     </section>
+    ${items == null ? '' : runHooks('boxSections', box, items)}
     <input type="file" id="photoOnlyInput" accept="image/*" multiple hidden>`;
 }
 function renderNotFound() {
@@ -697,20 +942,25 @@ function renderNotFound() {
 }
 async function renderBox(id) {
   const view = $('#view');
-  let box = S.boxes.find((b) => b.id === id);
+  let box = boxById(id);
   if (box) view.innerHTML = boxPageHtml(box, null, null);
   else renderLoading();
   let items, photos;
   try {
     if (!box) {
       if (!/^[0-9a-f-]{36}$/i.test(id)) { renderNotFound(); return; }
+      if (S.offline) { renderNotFound(); return; }
       box = must(await sb.from('boxes').select('*').eq('id', id).maybeSingle());
       if (!box) { renderNotFound(); return; }
     }
-    [items, photos] = await Promise.all([fetchItems(id), fetchPhotos(id)]);
+    if (S.offline) { items = itemsOf(id); photos = []; }
+    else [items, photos] = await Promise.all([fetchItems(id), fetchPhotos(id)]);
   } catch (e) {
-    if (currentRoute().id === id) renderFatal(e, () => renderBox(id));
-    return;
+    if (box && isNetError(e)) { items = itemsOf(id); photos = []; }
+    else {
+      if (currentRoute().id === id) renderFatal(e, () => renderBox(id));
+      return;
+    }
   }
   if (currentRoute().name !== 'box' || currentRoute().id !== id) return;
   S.current = { box, items, photos };
@@ -721,22 +971,30 @@ function paintBox() {
   const view = $('#view');
   view.innerHTML = boxPageHtml(box, items, photos);
   hydrateImages(view);
-  $('#quickAdd').onsubmit = (e) => { e.preventDefault(); quickAdd(); };
+  if ($('#quickAdd')) $('#quickAdd').onsubmit = (e) => { e.preventDefault(); quickAdd(); };
   $('#photoOnlyInput').onchange = (e) => addPhotosOnly(Array.from(e.target.files || []));
 }
+// After a change: show the local copy right away, then fetch fresh data if online.
 async function refreshBox() {
   if (!S.current) return;
   const id = S.current.box.id;
+  const repaint = () => { if (currentRoute().name === 'box' && currentRoute().id === id) paintBox(); };
+  S.current.items = itemsOf(id);
+  const local = boxById(id);
+  if (local) S.current.box = local;
+  if (S.offline) { repaint(); return; }
   try {
     const [items, photos] = await Promise.all([fetchItems(id), fetchPhotos(id), loadBoxes()]);
-    const fresh = S.boxes.find((b) => b.id === id);
+    const fresh = boxById(id);
     if (fresh) S.current.box = fresh;
     S.current.items = items;
     S.current.photos = photos;
-    if (currentRoute().name === 'box' && currentRoute().id === id) paintBox();
-  } catch (e) { toast(friendlyError(e)); }
+    for (const fn of HOOKS.afterLoad) { try { await fn(); } catch (e) { console.error(e); } }
+  } catch (e) {
+    if (!isNetError(e)) toast(friendlyError(e));
+  }
+  repaint();
 }
-
 function parseQuickAdd(text) {
   return text.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean).map((part) => {
     let m = part.match(/^(\d{1,3})\s*(?:x|×|adet|tane|pcs)?\s+(.+)$/i);
@@ -753,8 +1011,8 @@ async function quickAdd() {
   const box = S.current.box;
   input.disabled = true;
   try {
-    must(await sb.from('items').insert(list.map((x) => ({ box_id: box.id, name: x.name, quantity: x.quantity, category: 'other', source: 'manual' }))));
-    toast(tp('added_n', list.length));
+    const res = await Store.insertItems(list.map((x) => ({ box_id: box.id, name: x.name, quantity: x.quantity, category: 'other', source: 'manual' })));
+    toast(res.queued ? t('saved_offline') : tp('added_n', list.length));
     await refreshBox();
     const again = $('#quickAddInput');
     if (again) again.focus();
@@ -765,6 +1023,7 @@ async function quickAdd() {
 }
 async function addPhotosOnly(files) {
   if (!files.length) return;
+  if (S.offline) { toast(t('needs_connection')); return; }
   showBlocker(t('saving'));
   try {
     const prepared = [];
@@ -792,10 +1051,11 @@ function openBoxForm(box) {
     <h2>${isNew ? t('new_box') : t('edit_box')}</h2>
     <form id="boxForm" novalidate>
       <label class="field"><span>${t('box_name')}</span><input class="input" name="name" maxlength="80" required placeholder="${t('box_name_ph')}" value="${esc(box ? box.name : '')}" ${isNew ? 'autofocus' : ''}></label>
-      <label class="field"><span>${t('place')}</span><select class="input" name="location">${opts}</select></label>
+      <label class="field"><span>${isBusiness() ? t('unit_or_place') : t('place')}</span><select class="input" name="location">${opts}</select></label>
       <label class="field" id="newPlaceField" hidden><span>${t('new_place_name')}</span><input class="input" name="newPlace" maxlength="60" placeholder="${t('place_name_ph')}"></label>
       <label class="field"><span>${t('spot')} <span class="opt">${t('optional')}</span></span><input class="input" name="spot" maxlength="60" placeholder="${t('spot_ph')}" value="${esc(box ? box.spot || '' : '')}"></label>
       <label class="field"><span>${t('notes')} <span class="opt">${t('optional')}</span></span><textarea class="input" name="notes" rows="2" maxlength="500">${esc(box ? box.notes || '' : '')}</textarea></label>
+      ${HOOKS.boxForm.map((h) => h.html(box)).join('')}
       <div class="error" id="boxErr" hidden></div>
       <div class="sheet-actions">
         <button type="button" class="btn ghost" data-act="sheet-close">${t('cancel')}</button>
@@ -806,11 +1066,13 @@ function openBoxForm(box) {
   const sel = form.location;
   const toggleNew = () => { const on = sel.value === '__new'; $('#newPlaceField').hidden = !on; if (on) form.newPlace.focus(); };
   sel.onchange = toggleNew;
+  HOOKS.boxForm.forEach((h) => h.bind && h.bind(sheet, box));
   form.onsubmit = async (e) => {
     e.preventDefault();
     const errEl = $('#boxErr');
     const name = form.name.value.trim();
     if (!name) { errEl.textContent = t('err_name_required'); errEl.hidden = false; form.name.focus(); return; }
+    if (S.offline) { errEl.textContent = t('needs_connection'); errEl.hidden = false; return; }
     const btn = form.querySelector('[type=submit]');
     btn.disabled = true;
     try {
@@ -818,12 +1080,13 @@ function openBoxForm(box) {
       if (locationId === '__new') {
         const pn = form.newPlace.value.trim();
         if (!pn) { errEl.textContent = t('err_name_required'); errEl.hidden = false; form.newPlace.focus(); btn.disabled = false; return; }
-        const loc = must(await sb.from('locations').insert({ space_id: S.space.id, name: pn }).select('id,name,notes,created_at').single());
+        const loc = must(await sb.from('locations').insert({ space_id: S.space.id, name: pn }).select('id,name,notes,color,created_at').single());
         S.locations.push(loc);
         S.locations.sort((a, b) => collator().compare(a.name, b.name));
         locationId = loc.id;
       }
       const vals = { name, location_id: locationId, spot: form.spot.value.trim() || null, notes: form.notes.value.trim() || null };
+      HOOKS.boxForm.forEach((h) => Object.assign(vals, h.collect ? h.collect(form, box) : {}));
       if (isNew) {
         const created = must(await sb.from('boxes').insert(Object.assign({ space_id: S.space.id }, vals)).select('id,code').single());
         await loadBoxes();
@@ -844,26 +1107,28 @@ function openBoxForm(box) {
     }
   };
 }
-
 function openBoxMenu() {
   const box = S.current.box;
+  const edit = ROLE.canEdit();
   openSheet(`
     <h2>${esc(box.code)}</h2>
     <ul class="menu">
-      <li><button type="button" data-act="edit-box">${icon('edit')}${t('edit_box')}</button></li>
-      <li><button type="button" data-act="print-box-label">${icon('printer')}${t('print_label')}</button></li>
-      <li><button type="button" class="danger" data-act="delete-box">${icon('trash')}${t('delete_box')}</button></li>
+      ${edit ? `<li><button type="button" data-act="edit-box">${icon('edit')}${t('edit_box')}</button></li>` : ''}
+      ${ROLE.isStaff() ? `<li><button type="button" data-act="print-box-label">${icon('printer')}${t('print_label')}</button></li>` : ''}
+      ${runHooks('boxMenu', box)}
+      ${edit ? `<li><button type="button" class="danger" data-act="delete-box">${icon('trash')}${t('delete_box')}</button></li>` : ''}
     </ul>`);
 }
 async function deleteBox() {
   const box = S.current.box;
   const ok = await confirmSheet({ title: t('delete_box_q', { code: box.code }), body: t('delete_box_body'), confirm: t('delete_box'), danger: true });
   if (!ok) return;
+  if (S.offline) { toast(t('needs_connection')); return; }
   showBlocker(t('deleting'));
   try {
-    const photos = S.current.photos || [];
-    if (photos.length) await removeFiles(photos.map((p) => p.path));
+    await removeFiles(boxFilePaths(box, S.current.items, S.current.photos));
     must(await sb.from('boxes').delete().eq('id', box.id));
+    S.items = S.items.filter((i) => i.box_id !== box.id);
     await loadBoxes();
     S.current = null;
     toast(t('deleted'));
@@ -874,10 +1139,9 @@ async function deleteBox() {
     hideBlocker();
   }
 }
-
-/* ---------- AI scan ---------- */
 function openScanSheet() {
   const box = S.current.box;
+  if (S.offline) { toast(t('needs_connection')); return; }
   const st = { shots: [], hint: '', phase: 'pick', found: [], savePhotos: true, photosSaved: false, error: '', preparing: false };
   const revokeAll = () => st.shots.forEach((s) => URL.revokeObjectURL(s.url));
 
@@ -1007,7 +1271,7 @@ function openScanSheet() {
         st.photosSaved = true;
       }
       if (chosen.length) {
-        must(await sb.from('items').insert(chosen.map((f) => ({ box_id: box.id, name: f.name.trim().slice(0, 80), quantity: clampQty(f.quantity), category: f.category, source: 'ai' }))));
+        await Store.insertItems(chosen.map((f) => ({ box_id: box.id, name: f.name.trim().slice(0, 80), quantity: clampQty(f.quantity), category: f.category, source: 'ai' })));
       }
       closeSheet();
       toast(chosen.length ? tp('added_n', chosen.length) : tp('photo_added', st.shots.length));
@@ -1058,9 +1322,27 @@ function openPhotoViewer(photoId) {
 }
 
 /* ---------- item editor ---------- */
+function itemDetailsHtml(it) {
+  const rows = [
+    [t('quantity'), String(it.quantity)],
+    [t('category'), catLabel(it.category)],
+    it.notes ? [t('notes'), it.notes] : null
+  ].filter(Boolean);
+  return `<dl class="facts">${rows.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`;
+}
+// People who can't edit (viewers, customers) get a read-only card.
+function openItemView(it) {
+  openSheet(`
+    <h2>${esc(it.name)}</h2>
+    ${(() => { const b = runHooks('itemBadges', it); return b ? `<div class="row-badges big">${b}</div>` : ''; })()}
+    ${itemDetailsHtml(it)}
+    ${HOOKS.itemEditor.map((h) => (h.view ? h.view(it) : '')).join('')}
+    <div class="sheet-actions"><button type="button" class="btn primary" data-act="sheet-close">${t('close')}</button></div>`);
+}
 function openItemEditor(itemId) {
   const it = S.current.items.find((x) => x.id === itemId);
   if (!it) return;
+  if (!ROLE.canEdit()) { openItemView(it); return; }
   const box = S.current.box;
   const coll = collator();
   const boxOpts = S.boxes.slice().sort((a, b) => coll.compare(a.code, b.code))
@@ -1079,6 +1361,7 @@ function openItemEditor(itemId) {
       <label class="field"><span>${t('category')}</span><select class="input" name="category">${catOptions(it.category)}</select></label>
       <label class="field"><span>${t('move_to')}</span><select class="input" name="box">${boxOpts}</select></label>
       <label class="field"><span>${t('notes')} <span class="opt">${t('optional')}</span></span><textarea class="input" name="notes" rows="2" maxlength="300">${esc(it.notes || '')}</textarea></label>
+      ${HOOKS.itemEditor.map((h) => h.html(it)).join('')}
       <div class="error" id="itemErr" hidden></div>
       <div class="sheet-actions">
         <button type="button" class="btn btn-icon" id="itemDel" aria-label="${t('delete_item')}" title="${t('delete_item')}">${icon('trash')}</button>
@@ -1088,16 +1371,21 @@ function openItemEditor(itemId) {
     </form>`);
   const form = $('#itemForm', sheet);
   $$('[data-step]', form).forEach((b) => b.onclick = () => { form.quantity.value = clampQty(Number(form.quantity.value) + Number(b.dataset.step)); });
+  HOOKS.itemEditor.forEach((h) => h.bind && h.bind(sheet, it));
   $('#itemDel', sheet).onclick = async () => {
     try {
-      must(await sb.from('items').delete().eq('id', it.id));
+      await Store.deleteItem(it.id);
       closeSheet();
       await refreshBox();
+      if (it.receipt_path && !S.offline) removeFiles([it.receipt_path]).catch(() => {});
       toast(t('deleted'), {
         action: t('undo'),
         onAction: async () => {
           try {
-            must(await sb.from('items').insert({ box_id: it.box_id, name: it.name, quantity: it.quantity, category: it.category, notes: it.notes, source: it.source }));
+            const copy = Object.assign({}, it);
+            delete copy.id; delete copy.created_at;
+            if (copy.receipt_path) copy.receipt_path = null;
+            await Store.insertItems([copy]);
             await refreshBox();
           } catch (e) { toast(friendlyError(e)); }
         }
@@ -1111,39 +1399,55 @@ function openItemEditor(itemId) {
     if (!name) { errEl.textContent = t('err_name_required'); errEl.hidden = false; return; }
     const vals = { name, quantity: clampQty(form.quantity.value), category: form.category.value, notes: form.notes.value.trim() || null, box_id: form.box.value };
     try {
-      must(await sb.from('items').update(vals).eq('id', it.id));
+      for (const h of HOOKS.itemEditor) {
+        if (h.collect) Object.assign(vals, await h.collect(form, it));
+      }
+    } catch (ex) { errEl.textContent = ex.userMessage || friendlyError(ex); errEl.hidden = false; return; }
+    try {
+      const res = await Store.updateItem(it.id, vals);
       closeSheet();
-      if (vals.box_id !== box.id) {
-        const target = S.boxes.find((b) => b.id === vals.box_id);
+      if (res.queued) toast(t('saved_offline'));
+      else if (vals.box_id !== box.id) {
+        const target = boxById(vals.box_id);
         toast(t('item_moved', { code: target ? target.code : '' }));
       } else toast(t('saved'));
       await refreshBox();
     } catch (ex) { errEl.textContent = friendlyError(ex); errEl.hidden = false; }
   };
 }
-
 /* =====================================================================
    Places
    ===================================================================== */
 function renderPlaces() {
   const noPlace = S.boxes.filter((b) => !b.location_id).length;
-  const row = (id, name, count, act) => `<li><button type="button" class="place-row" data-act="${act}" data-id="${esc(id)}">${icon('pin')}<span class="place-name">${esc(name)}</span><span class="place-count">${tp('n_boxes', count)}</span>${icon('chevron')}</button></li>`;
+  const edit = ROLE.canEdit();
+  const row = (id, name, count, act, color) => `<li><button type="button" class="place-row" data-act="${act}" data-id="${esc(id)}">${safeColor(color) ? `<span class="dot big" style="background:${esc(color)}"></span>` : icon('pin')}<span class="place-name">${esc(name)}</span><span class="place-count">${tp('n_boxes', count)}</span>${icon('chevron')}</button></li>`;
   $('#view').innerHTML = `
-    <header class="page-head"><h1 class="page-title">${t('places_title')}</h1></header>
-    <p class="page-intro">${t('places_intro')}</p>
+    <header class="page-head"><h1 class="page-title">${isBusiness() ? t('units_title') : t('places_title')}</h1></header>
+    <p class="page-intro">${isBusiness() ? t('units_intro') : t('places_intro')}</p>
     ${S.locations.length || noPlace ? `<ul class="list">
-      ${S.locations.map((l) => row(l.id, l.name, S.boxes.filter((b) => b.location_id === l.id).length, 'open-place')).join('')}
+      ${S.locations.map((l) => row(l.id, l.name, S.boxes.filter((b) => b.location_id === l.id).length, edit ? 'open-place' : 'show-place', l.color)).join('')}
       ${noPlace ? row('none', t('no_place'), noPlace, 'show-place') : ''}
     </ul>` : `<div class="empty"><p>${t('places_empty')}</p></div>`}
-    <button type="button" class="btn primary block" style="margin-top:16px" data-act="new-place">${icon('plus')}${t('add_place')}</button>`;
+    ${edit ? `<button type="button" class="btn primary block" style="margin-top:16px" data-act="new-place">${icon('plus')}${isBusiness() ? t('add_unit') : t('add_place')}</button>` : ''}`;
+}
+const PALETTE = ['#D1495B', '#EDAE49', '#66A182', '#2E86AB', '#7E5BA6', '#E07A5F', '#3D5A80', '#8D6E63'];
+function colorPicker(name, value) {
+  return `<div class="field"><span>${t('colour')} <span class="opt">${t('optional')}</span></span>
+    <div class="swatches" role="radiogroup" aria-label="${t('colour')}">
+      <label class="swatch none"><input type="radio" name="${name}" value="" ${!value ? 'checked' : ''}><span aria-label="${t('no_colour')}"></span></label>
+      ${PALETTE.map((c) => `<label class="swatch"><input type="radio" name="${name}" value="${c}" ${value === c ? 'checked' : ''}><span style="background:${c}"></span></label>`).join('')}
+    </div></div>`;
 }
 function openPlaceSheet(loc) {
   const isNew = !loc;
   const sheet = openSheet(`
-    <h2>${isNew ? t('place_title_new') : t('place_title_edit')}</h2>
+    <h2>${isNew ? (isBusiness() ? t('unit_title_new') : t('place_title_new')) : t('place_title_edit')}</h2>
     <form id="placeForm" novalidate>
-      <label class="field"><span>${t('box_name')}</span><input class="input" name="name" maxlength="60" required placeholder="${t('place_name_ph')}" value="${esc(loc ? loc.name : '')}" ${isNew ? 'autofocus' : ''}></label>
+      <label class="field"><span>${t('box_name')}</span><input class="input" name="name" maxlength="60" required placeholder="${isBusiness() ? t('unit_name_ph') : t('place_name_ph')}" value="${esc(loc ? loc.name : '')}" ${isNew ? 'autofocus' : ''}></label>
       <label class="field"><span>${t('notes')} <span class="opt">${t('optional')}</span></span><textarea class="input" name="notes" rows="2" maxlength="300">${esc(loc ? loc.notes || '' : '')}</textarea></label>
+      ${colorPicker('color', loc ? loc.color : '')}
+      ${HOOKS.placeForm.map((h) => h.html(loc)).join('')}
       <div class="error" id="placeErr" hidden></div>
       ${isNew ? '' : `<ul class="menu">
         <li><button type="button" data-act="show-place" data-id="${esc(loc.id)}">${icon('box')}${t('show_boxes')}</button></li>
@@ -1151,16 +1455,18 @@ function openPlaceSheet(loc) {
       </ul>`}
       <div class="sheet-actions">
         <button type="button" class="btn ghost" data-act="sheet-close">${t('cancel')}</button>
-        <button type="submit" class="btn primary">${isNew ? t('add_place') : t('save')}</button>
+        <button type="submit" class="btn primary">${isNew ? (isBusiness() ? t('add_unit') : t('add_place')) : t('save')}</button>
       </div>
     </form>`);
   const form = $('#placeForm', sheet);
+  HOOKS.placeForm.forEach((h) => h.bind && h.bind(sheet, loc));
   form.onsubmit = async (e) => {
     e.preventDefault();
     const name = form.name.value.trim();
     const errEl = $('#placeErr');
     if (!name) { errEl.textContent = t('err_name_required'); errEl.hidden = false; return; }
-    const vals = { name, notes: form.notes.value.trim() || null };
+    const picked = form.querySelector('input[name=color]:checked');
+    const vals = { name, notes: form.notes.value.trim() || null, color: picked && picked.value ? picked.value : null };
     try {
       if (isNew) must(await sb.from('locations').insert(Object.assign({ space_id: S.space.id }, vals)));
       else must(await sb.from('locations').update(vals).eq('id', loc.id));
@@ -1184,7 +1490,6 @@ function openPlaceSheet(loc) {
     };
   }
 }
-
 /* =====================================================================
    Labels
    ===================================================================== */
@@ -1202,7 +1507,8 @@ function qrSvg(text) {
 }
 function labelHtml(b) {
   const loc = locationName(b.location_id);
-  return `<div class="plabel">${qrSvg(boxUrl(b.id))}<div class="pl-text"><div class="pl-code">${esc(b.code)}</div><div class="pl-name">${esc(b.name)}</div>${loc ? `<div class="pl-place">${esc(b.spot ? loc + ', ' + b.spot : loc)}</div>` : ''}</div></div>`;
+  const color = firstHook('labelColor', b) || locationColor(b.location_id);
+  return `<div class="plabel${color ? ' banded' : ''}"${color ? ` style="--band:${esc(color)}"` : ''}>${qrSvg(boxUrl(b.id))}<div class="pl-text"><div class="pl-code">${esc(b.code)}</div><div class="pl-name">${esc(b.name)}</div>${loc ? `<div class="pl-place">${esc(b.spot ? loc + ', ' + b.spot : loc)}</div>` : ''}${runHooks('labelExtra', b)}</div></div>`;
 }
 function labelPages(boxes, size) {
   const per = size === 'small' ? 24 : 8;
@@ -1335,6 +1641,7 @@ function renderMe() {
           ${['light', 'dark', 'system'].map((m) => `<button type="button" data-act="set-theme" data-theme="${m}" aria-pressed="${theme === m}">${t('theme_' + m)}</button>`).join('')}
         </div>
       </section>
+      ${runHooks('meSections')}
       <section>
         <h2 class="setting-title">${t('ai_scans')}</h2>
         <p style="margin:0" id="meUsage">${esc(S.aiLimit != null ? t('ai_scans_left', { n: S.aiRemaining, limit: S.aiLimit }) : t('ai_scans_unknown'))}</p>
@@ -1362,16 +1669,11 @@ function renderMe() {
 async function deleteAccount() {
   const ok = await confirmSheet({ title: t('delete_account_q'), body: t('delete_account_body'), confirm: t('delete_account'), danger: true });
   if (!ok) return;
+  if (S.offline) { toast(t('needs_connection')); return; }
   showBlocker(t('deleting'));
   try {
-    const spaces = must(await sb.from('spaces').select('id').eq('owner_id', S.user.id)) || [];
-    for (const sp of spaces) {
-      for (let from = 0; ; from += 1000) {
-        const rows = must(await sb.from('box_photos').select('path').eq('space_id', sp.id).range(from, from + 999)) || [];
-        await removeFiles(rows.map((r) => r.path));
-        if (rows.length < 1000) break;
-      }
-    }
+    const spaces = must(await sb.from('spaces').select('id,logo_path').eq('owner_id', S.user.id)) || [];
+    for (const sp of spaces) await removeSpaceFiles(sp);
     must(await sb.rpc('delete_my_account'));
     S.pendingAuthMessage = t('account_deleted');
     await sb.auth.signOut({ scope: 'local' }).catch(() => {});
@@ -1384,7 +1686,21 @@ async function deleteAccount() {
     toast(friendlyError(e));
   }
 }
-
+// Photos, receipts and the logo of a space (Supabase can't delete files from SQL).
+async function removeSpaceFiles(sp) {
+  const paths = sp.logo_path ? [sp.logo_path] : [];
+  for (let from = 0; ; from += 1000) {
+    const rows = must(await sb.from('box_photos').select('path').eq('space_id', sp.id).range(from, from + 999)) || [];
+    paths.push(...rows.map((r) => r.path));
+    if (rows.length < 1000) break;
+  }
+  for (let from = 0; ; from += 1000) {
+    const rows = must(await sb.from('items').select('receipt_path').eq('space_id', sp.id).range(from, from + 999)) || [];
+    paths.push(...rows.map((r) => r.receipt_path).filter(Boolean));
+    if (rows.length < 1000) break;
+  }
+  await removeFiles(paths);
+}
 /* =====================================================================
    QR scanner
    ===================================================================== */

@@ -2,10 +2,11 @@
 // Pages are network-first (new deploys show up right away) with a cached fallback.
 // Fonts, icons, libraries: served from cache, refreshed in the background.
 // Supabase (database, sign-in, photos, AI) is never cached.
-const CACHE = 'bf-shell-v1';
+const CACHE = 'bf-shell-v2';
 const SHELL = [
-  '/', '/config.js', '/manifest.webmanifest', '/fonts/fonts.css', '/vendor/qrcode.js',
-  '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png', '/icons/icon.svg'
+  '/', '/config.js', '/manifest.webmanifest', '/fonts/fonts.css', '/vendor/qrcode.js', '/vendor/jsQR.js',
+  '/js/i18n.js', '/js/app.js', '/js/offline.js', '/js/records.js', '/js/moving.js', '/js/spaces.js', '/js/extras.js',
+  '/privacy.html', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png', '/icons/icon.svg'
 ];
 const STATIC_HOSTS = ['unpkg.com'];
 
@@ -28,8 +29,8 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname.endsWith('supabase.co') || url.hostname.endsWith('supabase.in')) return;
 
   // The page and config: network first, cached copy when offline.
-  if (req.mode === 'navigate' || url.pathname === '/config.js') {
-    const key = req.mode === 'navigate' ? '/' : url.pathname;
+  if (req.mode === 'navigate' || url.pathname === '/config.js' || url.pathname.startsWith('/js/')) {
+    const key = req.mode === 'navigate' ? (url.pathname === '/privacy.html' || url.pathname === '/s.html' ? url.pathname : '/') : url.pathname;
     event.respondWith(
       fetch(req)
         .then((res) => {
